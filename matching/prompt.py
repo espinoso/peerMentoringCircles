@@ -1,6 +1,7 @@
 """Build the matching prompt and turn the model's JSON into groups."""
 from __future__ import annotations
 
+import re
 import unicodedata
 from dataclasses import dataclass
 
@@ -178,13 +179,42 @@ Return a single JSON object exactly like this:
       "name": "Short descriptive circle name, e.g. 'Eye Science & Neuroscience'",
       "member_ids": [0, 4, 9],
       "rationale": "One sentence on what unites this circle.",
-      "flags": ["Optional notes on any member who is a borderline fit."]
+      "flags": ["Optional: a genuine borderline-fit note about ONE member, by name."]
     }}
   ]
 }}
 Use the integer applicant IDs shown above in member_ids. Do not invent IDs.
 Include every applicant ID exactly once across all groups.
+
+Flags are only for a real concern that a specific person may be a weak fit for
+their circle — refer to the person by NAME. Do NOT write notes about keeping a
+person to one circle, splitting/duplicating people, group numbers, bridges
+between circles, or how you balanced sizes; those are handled automatically.
 """
+
+
+# Flags that are bookkeeping noise (commentary about constraints the app
+# already enforces), not a genuine fit concern — these get dropped.
+_NOISE_FLAG = re.compile(
+    r"one[\s-]?circle|one[\s-]?person|strict|de-?dup|duplicat|both circles|two circles|"
+    r"also (placed|appears|in|shared|counted)|shared across|bridge|counted in|"
+    r"per instruction|this id|replace (them|him|her|with)|keep \d+|group \d+|such as \d+",
+    re.IGNORECASE,
+)
+_APPLICANT_REF = re.compile(r"\b(?:applicant|id)\s+(\d+)\b", re.IGNORECASE)
+
+
+def _clean_flag(text: str, by_id: dict[int, Participant]) -> str | None:
+    """Return a cleaned flag, or None if it is bookkeeping noise to drop."""
+    text = text.strip()
+    if not text or _NOISE_FLAG.search(text):
+        return None
+
+    def repl(m: "re.Match") -> str:
+        i = int(m.group(1))
+        return by_id[i].name if i in by_id else m.group(0)
+
+    return _APPLICANT_REF.sub(repl, text)
 
 
 def generate_groups(
@@ -203,6 +233,7 @@ def generate_groups(
     a thin parse of the model output.
     """
     valid_ids = {p.id for p in participants}
+    by_id = {p.id: p for p in participants}
     user = build_user_prompt(participants, weights, ideal, min_size, max_size, themes)
     raw = client.complete(SYSTEM_PROMPT, user)
     data = parse_json_response(raw)
@@ -219,12 +250,14 @@ def generate_groups(
             if i in valid_ids and i not in seen:
                 ids.append(i)
                 seen.add(i)
+        flags = [_clean_flag(str(f), by_id) for f in g.get("flags", [])]
+        flags = [f for f in flags if f]
         groups.append(
             Group(
                 name=str(g.get("name", "Unnamed circle")).strip() or "Unnamed circle",
                 member_ids=ids,
                 rationale=str(g.get("rationale", "")).strip(),
-                flags=[str(f) for f in g.get("flags", []) if str(f).strip()],
+                flags=flags,
             )
         )
     return groups
