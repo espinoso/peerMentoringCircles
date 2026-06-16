@@ -1,0 +1,33 @@
+# IMFAHE Peer Mentoring Circles — matching app configuration.
+# Edit these defaults to taste; the weights and group sizes can also be
+# adjusted live in the app's sidebar each time you run a match.
+
+[provider]
+# Which LLM backend to use: "openai" or "anthropic".
+name = "openai"
+
+[provider.openai]
+# Set to a model your API key has access to.
+model = "gpt-5.1"
+
+[provider.anthropic]
+model = "claude-opus-4-8"
+
+[matching]
+# Target size the balancer aims for (kept within min/max). Organizers prefer 4–5.
+ideal_group_size = 5
+min_group_size = 3
+max_group_size = 6
+
+# Relative importance of each form question, 0 (ignore) to 5 (drives grouping).
+# These map to the 2027 participation form questions.
+[weights]
+groups = 5             # Q9  - which of the 21 themes they want to join
+topic = 4              # Q5  - specific topic of their work
+keywords = 4           # Q6  - career-interest keywords
+objectives = 3         # Q8  - joint article / grant / shark tank / networking
+multidisciplinary = 3  # Q10 - same-field vs multidisciplinary preference
+who_to_meet = 2        # Q7  - specific people/orgs/fields they want to meet
+comments = 2           # Q11 - free-text matching comments
+organization = 1       # Q3
+position = 1           # Q4
