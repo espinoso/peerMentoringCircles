@@ -129,15 +129,21 @@ def upload_section() -> None:
     st.caption("Export the 2027 Google Form responses as CSV or XLSX, then upload here.")
     file = st.file_uploader("Responses file", type=["csv", "xlsx", "xls"])
     if file is not None:
-        try:
-            participants, _ = parse_participants(file.getvalue(), file.name)
-        except ParseError as e:
-            st.error(str(e))
-            return
-        st.session_state["participants"] = participants
-        st.session_state["groups"] = None
-        st.session_state["excluded_ids"] = set()
-        st.success(f"Loaded {len(participants)} applicants.")
+        # The uploader returns the same file on every rerun. Only (re)parse when
+        # a genuinely different file is uploaded — otherwise we would wipe the
+        # generated circles and manual edits on every interaction.
+        sig = (file.name, file.size)
+        if st.session_state.get("uploaded_sig") != sig:
+            try:
+                participants, _ = parse_participants(file.getvalue(), file.name)
+            except ParseError as e:
+                st.error(str(e))
+                return
+            st.session_state["participants"] = participants
+            st.session_state["groups"] = None
+            st.session_state["excluded_ids"] = set()
+            st.session_state["uploaded_sig"] = sig
+            st.success(f"Loaded {len(participants)} applicants.")
 
     participants = st.session_state.get("participants")
     if participants:
