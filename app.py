@@ -214,6 +214,30 @@ def duplicates_section() -> None:
         st.info(f"{n_excluded} row(s) will be excluded from matching.")
 
 
+def _run_generation(settings: dict, participants: list[Participant], active: list[Participant]) -> None:
+    api_key = get_secret(
+        "OPENAI_API_KEY" if settings["provider"] == "openai" else "ANTHROPIC_API_KEY"
+    )
+    try:
+        client = LLMClient(settings["provider"], settings["model"], api_key)
+        with st.spinner("Matching applicants into circles…"):
+            raw = generate_groups(
+                client, active, settings["weights"], settings["ideal"],
+                settings["min_size"], settings["max_size"], THEMES,
+            )
+            groups, notes = balance_groups(
+                raw, participants, [p.id for p in active],
+                settings["min_size"], settings["max_size"], settings["ideal"],
+            )
+    except LLMError as e:
+        st.error(str(e))
+        return
+    st.session_state["groups"] = groups
+    for note in notes:
+        st.info(note)
+    st.success(f"Created {len([g for g in groups if g.member_ids])} circles.")
+
+
 def generate_section(settings: dict) -> None:
     participants: list[Participant] | None = st.session_state.get("participants")
     if not participants:
@@ -222,50 +246,21 @@ def generate_section(settings: dict) -> None:
     excluded: set[int] = st.session_state["excluded_ids"]
     active = [p for p in participants if p.id not in excluded]
 
-    st.subheader("3. Generate circles")
-    st.caption(f"{len(active)} applicants will be matched.")
-    if st.button("✨ Generate circles", type="primary"):
-        api_key = get_secret(
-            "OPENAI_API_KEY" if settings["provider"] == "openai" else "ANTHROPIC_API_KEY"
-        )
-        try:
-            client = LLMClient(settings["provider"], settings["model"], api_key)
-            with st.spinner("Matching applicants into circles…"):
-                raw = generate_groups(
-                    client,
-                    active,
-                    settings["weights"],
-                    settings["ideal"],
-                    settings["min_size"],
-                    settings["max_size"],
-                    THEMES,
-                )
-                groups, notes = balance_groups(
-                    raw,
-                    participants,
-                    [p.id for p in active],
-                    settings["min_size"],
-                    settings["max_size"],
-                    settings["ideal"],
-                )
-        except LLMError as e:
-            st.error(str(e))
-            return
-        st.session_state["groups"] = groups
-        for note in notes:
-            st.info(note)
-        st.success(f"Created {len([g for g in groups if g.member_ids])} circles.")
-
-
-def _add_circle() -> None:
-    """Callback: create a named empty circle (runs before the rerun, so it
-    appears in place without bouncing the page to the top)."""
-    name = (st.session_state.get("new_circle_name") or "").strip()
-    groups = st.session_state.get("groups") or []
-    if name:
-        groups.append(Group(name=name, member_ids=[]))
-        st.session_state["groups"] = groups
-        st.session_state["new_circle_name"] = ""
+    if st.session_state.get("groups"):
+        # Circles already exist — keep generation out of the way so the editor is
+        # the main view, and make clear it is a fresh rebuild, not an edit.
+        with st.expander("↻ Re-generate circles from scratch"):
+            st.caption(
+                f"Rebuilds circles from the {len(active)} applicants and **discards "
+                "your manual edits**. Manual edits below never feed back into this."
+            )
+            if st.button("Re-generate", type="secondary"):
+                _run_generation(settings, participants, active)
+    else:
+        st.subheader("3. Generate circles")
+        st.caption(f"{len(active)} applicants will be matched.")
+        if st.button("✨ Generate circles", type="primary"):
+            _run_generation(settings, participants, active)
 
 
 def _apply_moves() -> None:
@@ -292,14 +287,21 @@ def edit_section(settings: dict) -> None:
     by_id = {p.id: p for p in participants}
     st.subheader("4. Review & edit circles")
     st.caption(
-        "Move someone by changing their circle, then click **Apply moves**. "
-        "Rename a circle in its title box. Sizes outside 3–6 are flagged."
+        "These edits are yours alone — they are never used to re-generate. "
+        "Add an empty circle, move people into it via their circle selector, then "
+        "click **Apply moves**. Rename a circle in its title box. Sizes outside 3–6 are flagged."
     )
 
-    # Add-circle control at the top so it's in view after a rerun.
-    ac1, ac2 = st.columns([3, 1])
-    ac1.text_input("New circle name", key="new_circle_name", placeholder="e.g. Cancer Genomics")
-    ac2.button("➕ Add circle", on_click=_add_circle, use_container_width=True)
+    # Add-circle form: submitting (Enter or button) creates an empty named circle.
+    with st.form("add_circle_form", clear_on_submit=True):
+        ac1, ac2 = st.columns([3, 1])
+        new_name = ac1.text_input(
+            "New circle name", placeholder="e.g. Cancer Genomics", label_visibility="collapsed"
+        )
+        submitted = ac2.form_submit_button("➕ Add circle", use_container_width=True)
+    if submitted and new_name.strip():
+        groups.append(Group(name=new_name.strip(), member_ids=[]))
+        st.session_state["groups"] = groups
 
     group_names = [g.name for g in groups]
 
