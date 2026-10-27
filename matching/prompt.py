@@ -58,6 +58,7 @@ class Group:
     member_ids: list[int]
     rationale: str = ""
     flags: list[str] = None  # noqa: RUF013
+    locked: bool = False  # organizer froze this circle; regeneration leaves it untouched
 
     def __post_init__(self):
         if self.flags is None:

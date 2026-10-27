@@ -18,6 +18,7 @@ from matching.parser import (
     ParseError,
     Participant,
     find_duplicates,
+    find_unusable,
     parse_participants,
 )
 from matching.prompt import Group, generate_groups
@@ -100,7 +101,13 @@ def sidebar_controls(cfg: dict) -> dict:
     ideal = col2.number_input("Ideal", 2, 10, int(m["ideal_group_size"]))
     max_size = col3.number_input("Max", 2, 12, int(m["max_group_size"]))
 
+    st.sidebar.caption(
+        "Circles mix institutions by design — people from the same organization are "
+        "kept in different circles whenever sizes allow."
+    )
+
     st.sidebar.subheader("Question weights (0–5)")
+    st.sidebar.caption("Higher weight = that answer counts for more when forming circles.")
     weights = {}
     for key, label in WEIGHT_FIELDS:
         weights[key] = st.sidebar.slider(
@@ -175,61 +182,134 @@ def _render_full_submission(p: Participant) -> None:
         st.markdown(f"**{label}:** {value or '—'}")
 
 
-def duplicates_section() -> None:
-    """Surface likely duplicate submissions and let the organizer exclude rows."""
+def review_section() -> None:
+    """Review step: surface likely duplicates and un-matchable rows, and let the
+    organizer exclude ANY applicant. Nothing is ever deleted — exclusions only
+    feed `excluded_ids`, which generation skips."""
     participants: list[Participant] | None = st.session_state.get("participants")
     if not participants:
         return
-    clusters = find_duplicates(participants)
-    if not clusters:
-        return
 
     excluded: set[int] = st.session_state["excluded_ids"]
-    st.subheader("2. Review possible duplicates")
+    clusters = find_duplicates(participants)
+    unusable = find_unusable(participants)
+    unusable_reason = {p.id: reason for p, reason in unusable}
+    shown: set[int] = set()  # each applicant gets exactly one checkbox (unique key)
+
+    st.subheader("2. Review applicants")
     st.caption(
-        "These rows look like the same person. Uncheck anyone you do NOT want to "
-        "include in the matching. By default we suggest keeping the most recent "
-        "submission of each."
+        "Flagged rows need a look before matching. Uncheck anyone you do NOT want "
+        "included — nothing is ever deleted, they are just skipped."
     )
-    for ci, cluster in enumerate(clusters):
-        st.markdown(f"**Possible duplicate — {cluster.reason}:**")
-        for p in cluster.members:
-            key = f"dup_{p.id}"
-            if key not in st.session_state:
-                # Default: keep only the suggested (latest) row; exclude the rest.
-                st.session_state[key] = p.id == cluster.suggested_keep_id
-            c1, c2 = st.columns([3, 2])
-            label = f"{p.name} · {p.email} · {p.organization or '—'}"
-            keep = c1.checkbox(label, key=key)
-            with c2.popover("ℹ️ Full submission"):
-                _render_full_submission(p)
-            if keep:
-                excluded.discard(p.id)
-            else:
-                excluded.add(p.id)
+
+    def keep_checkbox(p: Participant, default: bool, note: str = "") -> None:
+        key = f"rev_{p.id}"
+        if key not in st.session_state:
+            st.session_state[key] = default
+        c1, c2 = st.columns([3, 2])
+        label = f"{p.name} · {p.email or '—'} · {p.organization or '—'}"
+        if note:
+            label += f"  —  _{note}_"
+        keep = c1.checkbox(label, key=key)
+        with c2.popover("ℹ️ Full submission"):
+            _render_full_submission(p)
+        if keep:
+            excluded.discard(p.id)
+        else:
+            excluded.add(p.id)
+        shown.add(p.id)
+
+    if clusters:
+        st.markdown("**Possible duplicates** — we suggest keeping the most recent of each.")
+        for cluster in clusters:
+            st.markdown(f"_{cluster.reason}:_")
+            for p in cluster.members:
+                keep_checkbox(
+                    p,
+                    default=p.id == cluster.suggested_keep_id,
+                    note=unusable_reason.get(p.id, ""),
+                )
+
+    unusable_only = [(p, r) for p, r in unusable if p.id not in shown]
+    if unusable_only:
+        st.markdown(
+            "**Hard to match** — missing info, so the AI has little to go on. "
+            "Keep them only if you can place them by hand later."
+        )
+        for p, reason in unusable_only:
+            keep_checkbox(p, default=True, note=reason)
+
+    with st.expander("Exclude anyone else"):
+        st.caption("Uncheck to leave someone out of the matching (e.g. a withdrawal).")
+        for p in participants:
+            if p.id not in shown:
+                keep_checkbox(p, default=True)
+
     st.session_state["excluded_ids"] = excluded
     n_excluded = len(excluded)
     if n_excluded:
         st.info(f"{n_excluded} row(s) will be excluded from matching.")
 
 
+def split_locked(
+    groups: list[Group], active: list[Participant], min_size: int
+) -> tuple[list[Group], list[int], bool]:
+    """Split current circles for a lock-aware regeneration.
+
+    Returns (locked_groups kept as-is, ids of active applicants free to regroup,
+    too_few) where too_few is True when the unlocked pool is below min_size.
+    """
+    locked_groups = [g for g in groups if g.locked]
+    locked_ids = {pid for g in locked_groups for pid in g.member_ids}
+    unlocked_pool_ids = [p.id for p in active if p.id not in locked_ids]
+    too_few = len(unlocked_pool_ids) < min_size
+    return locked_groups, unlocked_pool_ids, too_few
+
+
+def _clear_editor_widget_state() -> None:
+    """Drop index-keyed editor widget state so the editor re-seeds from the new
+    circles after a (re)generation — otherwise stale lock/name/move state would
+    bleed onto the freshly created circles."""
+    for key in [k for k in st.session_state if k.startswith(("lock_", "name_", "assign_"))]:
+        del st.session_state[key]
+
+
 def _run_generation(settings: dict, participants: list[Participant], active: list[Participant]) -> None:
+    current: list[Group] = st.session_state.get("groups") or []
+    locked_groups, pool_ids, too_few = split_locked(current, active, settings["min_size"])
+
+    # Locks that leave too few free applicants: skip rather than crash/drop anyone.
+    if locked_groups and too_few:
+        st.warning(
+            f"Only {len(pool_ids)} applicant(s) are free to regroup after locking — "
+            f"fewer than the {settings['min_size']}-member minimum. Unlock a circle "
+            "or exclude fewer people, then try again. Nothing was regenerated."
+        )
+        return
+
+    pool_set = set(pool_ids)
+    pool = [p for p in active if p.id in pool_set]
+
     api_key = get_secret("ANTHROPIC_API_KEY")
     try:
         client = LLMClient(settings["model"], api_key)
         with st.spinner("Matching applicants into circles…"):
             raw = generate_groups(
-                client, active, settings["weights"], settings["ideal"],
+                client, pool, settings["weights"], settings["ideal"],
                 settings["min_size"], settings["max_size"], THEMES,
             )
             groups, notes = balance_groups(
-                raw, participants, [p.id for p in active],
+                raw, participants, pool_ids,
                 settings["min_size"], settings["max_size"], settings["ideal"],
             )
     except LLMError as e:
         st.error(str(e))
         return
+    groups = locked_groups + groups  # locked circles ride along unchanged, up front
     st.session_state["groups"] = groups
+    _clear_editor_widget_state()
+    if locked_groups:
+        st.caption(f"Kept {len(locked_groups)} locked circle(s) unchanged.")
     for note in notes:
         st.info(note)
     st.success(f"Created {len([g for g in groups if g.member_ids])} circles.")
@@ -255,7 +335,10 @@ def generate_section(settings: dict) -> None:
                 _run_generation(settings, participants, active)
     else:
         st.subheader("3. Generate circles")
-        st.caption(f"{len(active)} applicants will be matched.")
+        st.caption(
+            f"{len(active)} applicants will be matched. The AI proposes the circles; "
+            "group sizes and the no-same-organization rule are then enforced automatically."
+        )
         if st.button("✨ Generate circles", type="primary"):
             _run_generation(settings, participants, active)
 
@@ -286,7 +369,9 @@ def edit_section(settings: dict) -> None:
     st.caption(
         "These edits are yours alone — they are never used to re-generate. "
         "Add an empty circle, move people into it via their circle selector, then "
-        "click **Apply moves**. Rename a circle in its title box. Sizes outside 3–6 are flagged."
+        "click **Apply moves**. Rename a circle in its title box. Sizes outside 3–6 are flagged. "
+        "Happy with a circle? **Lock** it so a re-generate leaves it untouched and only "
+        "reshuffles the rest."
     )
 
     # Add-circle form: submitting (Enter or button) creates an empty named circle.
@@ -306,8 +391,14 @@ def edit_section(settings: dict) -> None:
         size = len(g.member_ids)
         ok = settings["min_size"] <= size <= settings["max_size"]
         flag = "" if ok else "  ⚠️"
-        with st.expander(f"{g.name} — {size} members{flag}", expanded=not ok):
+        lock_mark = " 🔒" if g.locked else ""
+        with st.expander(f"{g.name} — {size} members{flag}{lock_mark}", expanded=not ok):
             g.name = st.text_input("Circle name", g.name, key=f"name_{gi}")
+            g.locked = st.checkbox(
+                "🔒 Lock this circle", value=g.locked, key=f"lock_{gi}",
+                help="Keep this circle exactly as-is when you re-generate; only the "
+                "unlocked applicants are reshuffled.",
+            )
             if g.rationale:
                 st.caption(g.rationale)
             for fl in g.flags:
@@ -334,6 +425,10 @@ def export_section() -> None:
     if not groups or not participants:
         return
     st.subheader("5. Export")
+    st.caption(
+        "Download the circles as an Excel workbook (one sheet listing every circle "
+        "and its members) to share with the team."
+    )
     xlsx = build_xlsx(groups, participants)
     st.download_button(
         "⬇️ Download grouped XLSX",
@@ -354,7 +449,7 @@ def main():
     settings = sidebar_controls(cfg)
 
     upload_section()
-    duplicates_section()
+    review_section()
     generate_section(settings)
     edit_section(settings)
     export_section()
