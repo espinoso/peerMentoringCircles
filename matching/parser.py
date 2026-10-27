@@ -7,6 +7,7 @@ on a distinctive phrase from each question. That keeps us robust to small edits
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from io import BytesIO
 
@@ -116,6 +117,11 @@ def _split_multi(value: str) -> list[str]:
     return [part.strip() for part in str(value).split(";") if part.strip()]
 
 
+def _normalize_theme(label: str) -> str:
+    """Drop the form's leading "13. " numbering so themes compare by name."""
+    return re.sub(r"^\s*\d+\.\s*", "", label).strip()
+
+
 def parse_participants(data: bytes, filename: str) -> tuple[list[Participant], dict[str, str]]:
     """Parse the upload into Participants. Returns (participants, column_map).
 
@@ -162,7 +168,7 @@ def parse_participants(data: bytes, filename: str) -> tuple[list[Participant], d
                 keywords=get("keywords"),
                 who_to_meet=get("who_to_meet"),
                 objectives=_split_multi(get("objectives")),
-                groups=_split_multi(get("groups")),
+                groups=[_normalize_theme(g) for g in _split_multi(get("groups"))],
                 multidisciplinary=get("multidisciplinary"),
                 comments=get("comments"),
             )
