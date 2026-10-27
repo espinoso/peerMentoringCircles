@@ -3,7 +3,7 @@
 Usage:
     python scripts/run_match.py [path/to/responses.xlsx]
 
-Reads the API key from the environment (OPENAI_API_KEY / ANTHROPIC_API_KEY) or
+Reads the API key from the environment (ANTHROPIC_API_KEY) or
 from .streamlit/secrets.toml. Prints the proposed circles and writes the grouped
 XLSX next to the input file.
 """
@@ -54,13 +54,11 @@ def main() -> None:
         print(f"({len(dups)} possible duplicate cluster(s) detected — kept all in headless mode)")
     print()
 
-    provider = cfg["provider"]["name"]
-    model = cfg["provider"][provider]["model"]
-    key = get_key("OPENAI_API_KEY" if provider == "openai" else "ANTHROPIC_API_KEY")
-    client = LLMClient(provider, model, key)
+    model = cfg["provider"]["model"]
+    client = LLMClient(model, get_key("ANTHROPIC_API_KEY"))
 
     m = cfg["matching"]
-    print(f"Matching with {provider}:{model} …")
+    print(f"Matching with {model} …")
     raw = generate_groups(
         client, participants, dict(cfg["weights"]),
         m["ideal_group_size"], m["min_group_size"], m["max_group_size"], THEMES,

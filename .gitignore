@@ -18,3 +18,8 @@ venv/
 
 # Claude Code local settings
 .claude/
+
+# Test fixtures are committed (the *.xlsx/*.csv rules above would hide them)
+!tests/fixtures/
+!tests/fixtures/*.csv
+!tests/fixtures/*.xlsx

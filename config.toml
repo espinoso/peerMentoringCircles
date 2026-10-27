@@ -3,15 +3,8 @@
 # adjusted live in the app's sidebar each time you run a match.
 
 [provider]
-# Which LLM backend to use: "openai" or "anthropic".
-name = "openai"
-
-[provider.openai]
-# Set to a model your API key has access to.
-model = "gpt-5.1"
-
-[provider.anthropic]
-model = "claude-opus-4-8"
+# Claude model used for matching.
+model = "claude-opus-5-5"
 
 [matching]
 # Target size the balancer aims for (kept within min/max). Organizers prefer 4–5.

@@ -91,13 +91,7 @@ def init_state(cfg: dict):
 def sidebar_controls(cfg: dict) -> dict:
     st.sidebar.header("⚙️ Matching settings")
 
-    provider = st.sidebar.selectbox(
-        "LLM provider",
-        ["openai", "anthropic"],
-        index=0 if cfg["provider"]["name"] == "openai" else 1,
-    )
-    model = cfg["provider"][provider]["model"]
-    st.sidebar.caption(f"Model: `{model}` (set in config.toml)")
+    model = cfg["provider"]["model"]
 
     st.sidebar.subheader("Group size")
     m = cfg["matching"]
@@ -115,7 +109,6 @@ def sidebar_controls(cfg: dict) -> dict:
     st.session_state["weights"] = weights
 
     return {
-        "provider": provider,
         "model": model,
         "min_size": int(min_size),
         "ideal": int(ideal),
@@ -221,11 +214,9 @@ def duplicates_section() -> None:
 
 
 def _run_generation(settings: dict, participants: list[Participant], active: list[Participant]) -> None:
-    api_key = get_secret(
-        "OPENAI_API_KEY" if settings["provider"] == "openai" else "ANTHROPIC_API_KEY"
-    )
+    api_key = get_secret("ANTHROPIC_API_KEY")
     try:
-        client = LLMClient(settings["provider"], settings["model"], api_key)
+        client = LLMClient(settings["model"], api_key)
         with st.spinner("Matching applicants into circles…"):
             raw = generate_groups(
                 client, active, settings["weights"], settings["ideal"],
