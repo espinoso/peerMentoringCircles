@@ -187,7 +187,9 @@ Use the integer applicant IDs shown above in member_ids. Do not invent IDs.
 Include every applicant ID exactly once across all groups.
 
 Flags are only for a real concern that a specific person may be a weak fit for
-their circle — refer to the person by NAME. Do NOT write notes about keeping a
+their circle. Start each flag with that person's NAME (never an ID) and say, in
+one short sentence, what makes the fit borderline (e.g. field or goals differ
+from the rest of the circle). Do NOT write notes about keeping a
 person to one circle, splitting/duplicating people, group numbers, bridges
 between circles, or how you balanced sizes; those are handled automatically.
 """
