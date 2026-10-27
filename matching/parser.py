@@ -224,3 +224,17 @@ def find_duplicates(participants: list[Participant]) -> list[DuplicateCluster]:
             )
 
     return clusters
+
+
+def find_unusable(participants: list[Participant]) -> list[tuple[Participant, str]]:
+    """Flag rows that can't be matched well: no themes or no topic. Never mutates."""
+    flagged: list[tuple[Participant, str]] = []
+    for p in participants:
+        reasons = []
+        if not p.groups:
+            reasons.append("no themes chosen")
+        if not p.topic:
+            reasons.append("no topic given")
+        if reasons:
+            flagged.append((p, " and ".join(reasons)))
+    return flagged

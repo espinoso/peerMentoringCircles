@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from matching.parser import ParseError, find_duplicates, parse_participants
+from matching.parser import ParseError, find_duplicates, find_unusable, parse_participants
 
 FIX = Path(__file__).parent / "fixtures"
 CORE = {"name", "email", "organization", "topic", "groups"}
@@ -52,3 +52,18 @@ def test_duplicate_email_detected():
     assert clusters[0].reason == "same e-mail"
     assert {p.name for p in clusters[0].members} == {"Ben Fakeman"}
     assert clusters[0].suggested_keep_id == clusters[0].members[-1].id
+
+
+def test_find_unusable_flags_missing_themes_and_topic():
+    people, _ = load("responses_2025.csv")
+    before = [(p.groups, p.topic) for p in people]
+    flagged = find_unusable(people)
+    by_name = {p.name: reason for p, reason in flagged}
+    assert "no themes chosen" in by_name["Farid Notreal"]
+    assert len(flagged) == len([p for p in people if not p.groups or not p.topic])
+    assert [(p.groups, p.topic) for p in people] == before  # pure
+
+    # topic-only case, built directly
+    p = people[0]
+    p2 = type(p)(id=99, name="No Topic", email="x@y.z", groups=["A"], topic="")
+    assert find_unusable([p2]) == [(p2, "no topic given")]
