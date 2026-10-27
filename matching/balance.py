@@ -224,14 +224,15 @@ def balance_groups(
     orphans = [i for i in included if i not in placed]
     for oid in orphans:
         p = by_id[oid]
-        # Prefer a group below the target size, then best fit, then the emptier
-        # one — this spreads people toward the ideal size and reduces the chance
-        # of forcing a same-organization pairing.
+        # Prefer the highest-affinity circle with room (keeps the leftover
+        # thematically coherent), then one below target, then the emptier one —
+        # so the fallback to "wherever there is room" only kicks in when no
+        # circle is a better thematic match.
         candidates = [g for g in groups if len(g.member_ids) < max_size]
         if candidates:
             best = max(
                 candidates,
-                key=lambda g: (len(g.member_ids) < target, _fit(p, members(g), wants), -len(g.member_ids)),
+                key=lambda g: (_fit(p, members(g), wants), len(g.member_ids) < target, -len(g.member_ids)),
             )
             best.member_ids.append(oid)
         else:
@@ -321,7 +322,7 @@ def balance_groups(
                 tgt = max(mergeable, key=lambda g: sum(_fit(m, members(g), wants) for m in sgm))
                 tgt.member_ids.extend(sg.member_ids)
                 sg.member_ids = []
-            else:
+            elif any(len(g.member_ids) < max_size for g in others):
                 for mid in list(sg.member_ids):
                     cand = [g for g in others if len(g.member_ids) < max_size]
                     if not cand:
@@ -329,6 +330,10 @@ def balance_groups(
                     tgt = max(cand, key=lambda g: _fit(by_id[mid], members(g), wants))
                     tgt.member_ids.append(mid)
                     sg.member_ids.remove(mid)
+            else:
+                # Nobody can absorb this circle (e.g. a cohort too small to form
+                # any valid circle). Leave it and stop — the final note reports it.
+                break
             groups = [g for g in groups if g.member_ids]
             fixed_small += 1
     if fixed_small:
@@ -363,7 +368,13 @@ def balance_groups(
     # Final sanity note if constraints still can't hold (e.g. fewer than
     # min_size applicants total).
     bad = [g for g in groups if not (min_size <= len(g.member_ids) <= max_size)]
-    if bad and len(included) >= min_size:
-        notes.append("Some circles are still outside 3–6 — please adjust manually.")
+    if bad:
+        if len(included) >= min_size:
+            notes.append("Some circles are still outside 3–6 — please adjust manually.")
+        else:
+            notes.append(
+                f"Only {len(included)} applicant(s) to place — fewer than the "
+                f"{min_size}-member minimum, so this circle is outside 3–6."
+            )
 
     return groups, notes
