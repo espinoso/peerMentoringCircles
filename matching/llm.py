@@ -29,15 +29,26 @@ class LLMClient:
             raise LLMError("The 'anthropic' package is not installed.") from e
         client = anthropic.Anthropic(api_key=self.api_key)
         try:
+            # Opus 5.5 thinks before answering (~12-16k tokens on a full-cohort
+            # match), and that counts against max_tokens — so the budget must be
+            # well above thinking + the JSON, or the JSON gets truncated. Stream
+            # so a large max_tokens doesn't hit the HTTP timeout.
             # No temperature: Opus 5.5 rejects a custom value with a 400.
-            resp = client.messages.create(
+            with client.messages.stream(
                 model=self.model,
-                max_tokens=16000,
+                max_tokens=32000,
                 system=system + "\n\nRespond with a single valid JSON object and nothing else.",
                 messages=[{"role": "user", "content": user}],
-            )
+            ) as stream:
+                resp = stream.get_final_message()
         except Exception as e:
             raise LLMError(f"Anthropic request failed: {e}") from e
+        if resp.stop_reason == "max_tokens":
+            raise LLMError(
+                "The model's response was cut off before it finished — the cohort may "
+                "be too large for a single run. Try again, and if it persists, split "
+                "the group or reduce how many people are matched at once."
+            )
         return "".join(block.text for block in resp.content if block.type == "text")
 
 
