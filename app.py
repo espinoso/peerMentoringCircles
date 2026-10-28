@@ -7,6 +7,8 @@ edit (move people, rename, add/remove circles) -> download a grouped XLSX.
 from __future__ import annotations
 
 import os
+import threading
+import time
 from pathlib import Path
 
 import streamlit as st
@@ -287,7 +289,45 @@ def _clear_editor_widget_state() -> None:
         del st.session_state[key]
 
 
-def _run_generation(settings: dict, participants: list[Participant], active: list[Participant]) -> None:
+_EXPECTED_SECONDS = 100  # rough time a full-cohort match takes; drives the progress bar
+
+
+def compute_match(
+    settings: dict, pool: list[Participant], participants: list[Participant],
+    pool_ids: list[int], api_key: str,
+) -> tuple[list[Group], list[str]]:
+    """The slow work: ask the model, then balance. Pure (no Streamlit calls) so it
+    can run safely in a background thread."""
+    client = LLMClient(settings["model"], api_key)
+    raw = generate_groups(
+        client, pool, settings["weights"], settings["ideal"],
+        settings["min_size"], settings["max_size"], THEMES,
+    )
+    return balance_groups(
+        raw, participants, pool_ids,
+        settings["min_size"], settings["max_size"], settings["ideal"],
+    )
+
+
+def _match_worker(holder: dict, settings, pool, participants, pool_ids, api_key) -> None:
+    """Background thread: run the match and record the outcome in `holder`. Data
+    fields are written before `status`, so a reader that sees status set always
+    sees a complete result."""
+    try:
+        groups, notes = compute_match(settings, pool, participants, pool_ids, api_key)
+        holder["groups"], holder["notes"] = groups, notes
+        holder["status"] = "done"
+    except LLMError as e:
+        holder["error"] = str(e)
+        holder["status"] = "error"
+    except Exception as e:  # noqa: BLE001 - never let the thread hang the UI
+        holder["error"] = f"Unexpected error: {e}"
+        holder["status"] = "error"
+
+
+def _start_generation(settings: dict, participants: list[Participant], active: list[Participant]) -> None:
+    """Validate synchronously, then kick off the match in a background thread and
+    switch the UI into its locked 'matching…' state."""
     current: list[Group] = st.session_state.get("groups") or []
     locked_groups, pool_ids, too_few = split_locked(current, active, settings["min_size"])
 
@@ -308,30 +348,99 @@ def _run_generation(settings: dict, participants: list[Participant], active: lis
 
     api_key = get_secret("ANTHROPIC_API_KEY")
     try:
-        client = LLMClient(settings["model"], api_key)
-        with st.spinner("Matching applicants into circles…"):
-            raw = generate_groups(
-                client, pool, settings["weights"], settings["ideal"],
-                settings["min_size"], settings["max_size"], THEMES,
-            )
-            groups, notes = balance_groups(
-                raw, participants, pool_ids,
-                settings["min_size"], settings["max_size"], settings["ideal"],
-            )
+        LLMClient(settings["model"], api_key)  # fail fast on a missing/empty key
     except LLMError as e:
         st.error(str(e))
         return
-    # Re-attach locked circles, but first drop members no longer active (e.g. now
-    # excluded) and any locked circle left empty — otherwise an excluded applicant
-    # would survive into the export via a locked circle.
-    locked_groups = prune_locked(locked_groups, {p.id for p in active})
-    groups = locked_groups + groups  # locked circles ride along unchanged, up front
-    st.session_state["groups"] = groups
+
+    holder: dict = {"status": "running"}
+    threading.Thread(
+        target=_match_worker,
+        args=(holder, settings, pool, participants, pool_ids, api_key),
+        daemon=True,
+    ).start()
+    st.session_state["gen"] = {
+        "holder": holder,
+        "start": time.monotonic(),
+        "n": len(pool),
+        "locked_groups": locked_groups,
+        "active_ids": {p.id for p in active},
+    }
+    st.rerun()
+
+
+def _progress_fraction(elapsed: float, expected: float = _EXPECTED_SECONDS) -> float:
+    """Time-based estimate for the progress bar — eases toward 0.95 but never
+    reaches 1.0 until the job actually finishes (a single model call gives no true
+    progress signal, so this is reassurance, not telemetry)."""
+    if expected <= 0:
+        return 0.0
+    return min(0.95, elapsed / expected)
+
+
+def _finalize_generation() -> None:
+    """Move a just-finished background match into place (run once per rerun, before
+    the normal view renders)."""
+    res = st.session_state.pop("gen_result", None)
+    if not res:
+        return
+    meta = st.session_state.pop("gen_meta", {})
+    if res.get("status") == "error":
+        st.session_state["gen_error"] = res.get("error", "Matching failed.")
+        return
+    # Re-attach locked circles, dropping members now excluded and any emptied circle.
+    locked_groups = prune_locked(meta.get("locked_groups", []), meta.get("active_ids", set()))
+    st.session_state["groups"] = locked_groups + res["groups"]
     _clear_editor_widget_state()
-    if locked_groups:
-        st.caption(f"Kept {len(locked_groups)} locked circle(s) unchanged.")
+    st.session_state["gen_notes"] = res.get("notes", [])
+    st.session_state["gen_kept_locked"] = len(locked_groups)
+
+
+def render_generating_view() -> None:
+    """Locked 'matching…' screen: a time-based progress bar and a Cancel button,
+    nothing else interactive, so a stray click can't disrupt the run."""
+    gen = st.session_state["gen"]
+    st.subheader("Matching applicants into circles…")
+    st.caption(
+        f"Grouping {gen['n']} applicants with AI. This usually takes a minute or two — "
+        "please keep this tab open."
+    )
+
+    @st.fragment(run_every=1.0)
+    def _poll() -> None:
+        gen = st.session_state.get("gen")
+        if not gen:
+            return
+        if gen["holder"].get("status") in ("done", "error"):
+            st.session_state["gen_result"] = gen["holder"]
+            st.session_state["gen_meta"] = {
+                "locked_groups": gen["locked_groups"], "active_ids": gen["active_ids"],
+            }
+            del st.session_state["gen"]
+            st.rerun(scope="app")
+            return
+        elapsed = time.monotonic() - gen["start"]
+        st.progress(_progress_fraction(elapsed), text=f"Working… ~{int(elapsed)}s elapsed")
+
+    _poll()
+
+    if st.button("Cancel", icon=":material/close:"):
+        del st.session_state["gen"]  # abandon the result; the call finishes server-side
+        st.session_state["gen_cancelled"] = True
+        st.rerun()
+
+
+def _show_generation_result() -> None:
+    """Show the one-time notes/success from a finished match, next to the circles."""
+    if "gen_notes" not in st.session_state:
+        return
+    kept = st.session_state.pop("gen_kept_locked", 0)
+    notes = st.session_state.pop("gen_notes")
+    if kept:
+        st.caption(f"Kept {kept} locked circle(s) unchanged.")
     for note in notes:
         st.info(note)
+    groups = st.session_state.get("groups") or []
     st.success(f"Created {len([g for g in groups if g.member_ids])} circles.")
 
 
@@ -352,7 +461,7 @@ def generate_section(settings: dict) -> None:
                 "your manual edits**. Manual edits below never feed back into this."
             )
             if st.button("Re-generate", type="secondary", icon=":material/refresh:"):
-                _run_generation(settings, participants, active)
+                _start_generation(settings, participants, active)
     else:
         st.subheader("3. Generate circles")
         st.caption(
@@ -360,7 +469,7 @@ def generate_section(settings: dict) -> None:
             "group sizes and the no-same-organization rule are then enforced automatically."
         )
         if st.button("Generate circles", type="primary", icon=":material/auto_awesome:"):
-            _run_generation(settings, participants, active)
+            _start_generation(settings, participants, active)
 
 
 def _apply_moves() -> None:
@@ -499,11 +608,12 @@ _HEADER_HTML = """
 _STEPS = ["Upload", "Review", "Generate", "Edit", "Export"]
 
 
-def render_rail() -> None:
+def render_rail(current: int | None = None) -> None:
     """A thin progress rail reflecting where the organizer is in the flow."""
-    has_people = st.session_state.get("participants") is not None
-    has_groups = bool(st.session_state.get("groups"))
-    current = 3 if has_groups else (1 if has_people else 0)  # index into _STEPS
+    if current is None:
+        has_people = st.session_state.get("participants") is not None
+        has_groups = bool(st.session_state.get("groups"))
+        current = 3 if has_groups else (1 if has_people else 0)  # index into _STEPS
     cells = []
     for i, label in enumerate(_STEPS):
         cls = "on" if i == current else ("done" if i < current else "")
@@ -523,12 +633,27 @@ def main():
     init_state(cfg)
 
     st.markdown(_HEADER_HTML, unsafe_allow_html=True)
+    _finalize_generation()
+
+    if st.session_state.get("gen"):
+        # Locked 'matching…' view — the sidebar and all steps are withheld so a
+        # stray click can't disrupt the run.
+        render_rail(current=2)
+        render_generating_view()
+        return
+
     settings = sidebar_controls(cfg)
     render_rail()
+
+    if "gen_error" in st.session_state:
+        st.error(st.session_state.pop("gen_error"))
+    if st.session_state.pop("gen_cancelled", False):
+        st.info("Matching cancelled — nothing was changed.")
 
     upload_section()
     review_section()
     generate_section(settings)
+    _show_generation_result()
     edit_section(settings)
     export_section()
 
