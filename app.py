@@ -497,11 +497,11 @@ def main():
         page_title="IMFAHE Peer Mentoring Matching", page_icon=":material/hub:", layout="wide"
     )
     cfg = load_config()
+    st.markdown(_BRAND_CSS, unsafe_allow_html=True)  # before the gate, so login is branded too
     if not check_password():
         return
     init_state(cfg)
 
-    st.markdown(_BRAND_CSS, unsafe_allow_html=True)
     st.markdown(_HEADER_HTML, unsafe_allow_html=True)
     settings = sidebar_controls(cfg)
     render_rail()
