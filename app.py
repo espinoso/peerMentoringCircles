@@ -68,7 +68,7 @@ def check_password() -> bool:
         return True
     if st.session_state.get("authed"):
         return True
-    st.title("🔒 IMFAHE Peer Mentoring — Matching")
+    st.title("IMFAHE Peer Mentoring Circles")
     pw = st.text_input("Enter the access word", type="password")
     if pw:
         if pw == expected:
@@ -90,7 +90,7 @@ def init_state(cfg: dict):
 
 
 def sidebar_controls(cfg: dict) -> dict:
-    st.sidebar.header("⚙️ Matching settings")
+    st.sidebar.header("Matching settings")
 
     model = cfg["provider"]["model"]
 
@@ -211,7 +211,7 @@ def review_section() -> None:
         if note:
             label += f"  —  _{note}_"
         keep = c1.checkbox(label, key=key)
-        with c2.popover("ℹ️ Full submission"):
+        with c2.popover("Full submission", icon=":material/info:"):
             _render_full_submission(p)
         if keep:
             excluded.discard(p.id)
@@ -326,12 +326,12 @@ def generate_section(settings: dict) -> None:
     if st.session_state.get("groups"):
         # Circles already exist — keep generation out of the way so the editor is
         # the main view, and make clear it is a fresh rebuild, not an edit.
-        with st.expander("↻ Re-generate circles from scratch"):
+        with st.expander(":material/refresh: Re-generate circles from scratch"):
             st.caption(
                 f"Rebuilds circles from the {len(active)} applicants and **discards "
                 "your manual edits**. Manual edits below never feed back into this."
             )
-            if st.button("Re-generate", type="secondary"):
+            if st.button("Re-generate", type="secondary", icon=":material/refresh:"):
                 _run_generation(settings, participants, active)
     else:
         st.subheader("3. Generate circles")
@@ -339,7 +339,7 @@ def generate_section(settings: dict) -> None:
             f"{len(active)} applicants will be matched. The AI proposes the circles; "
             "group sizes and the no-same-organization rule are then enforced automatically."
         )
-        if st.button("✨ Generate circles", type="primary"):
+        if st.button("Generate circles", type="primary", icon=":material/auto_awesome:"):
             _run_generation(settings, participants, active)
 
 
@@ -380,7 +380,9 @@ def edit_section(settings: dict) -> None:
         new_name = ac1.text_input(
             "New circle name", placeholder="e.g. Cancer Genomics", label_visibility="collapsed"
         )
-        submitted = ac2.form_submit_button("➕ Add circle", use_container_width=True)
+        submitted = ac2.form_submit_button(
+            "Add circle", use_container_width=True, icon=":material/add:"
+        )
     if submitted and new_name.strip():
         groups.append(Group(name=new_name.strip(), member_ids=[]))
         st.session_state["groups"] = groups
@@ -390,12 +392,12 @@ def edit_section(settings: dict) -> None:
     for gi, g in enumerate(groups):
         size = len(g.member_ids)
         ok = settings["min_size"] <= size <= settings["max_size"]
-        flag = "" if ok else "  ⚠️"
-        lock_mark = " 🔒" if g.locked else ""
+        flag = "" if ok else " :material/warning:"
+        lock_mark = " :material/lock:" if g.locked else ""
         with st.expander(f"{g.name} — {size} members{flag}{lock_mark}", expanded=not ok):
             g.name = st.text_input("Circle name", g.name, key=f"name_{gi}")
             g.locked = st.checkbox(
-                "🔒 Lock this circle", value=g.locked, key=f"lock_{gi}",
+                "Lock this circle", value=g.locked, key=f"lock_{gi}",
                 help="Keep this circle exactly as-is when you re-generate; only the "
                 "unlocked applicants are reshuffled.",
             )
@@ -416,7 +418,7 @@ def edit_section(settings: dict) -> None:
                     label_visibility="collapsed",
                 )
 
-    st.button("🔄 Apply moves", on_click=_apply_moves, type="primary")
+    st.button("Apply moves", on_click=_apply_moves, type="primary", icon=":material/done_all:")
 
 
 def export_section() -> None:
@@ -431,22 +433,78 @@ def export_section() -> None:
     )
     xlsx = build_xlsx(groups, participants)
     st.download_button(
-        "⬇️ Download grouped XLSX",
+        "Download grouped XLSX",
         data=xlsx,
+        icon=":material/download:",
         file_name="peer_mentoring_circles.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
 
+_BRAND_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Spectral:wght@500;600&display=swap');
+/* Headings only — do NOT restyle the body font globally, or Streamlit's
+   Material icon ligatures (rendered in a special icon font) break. */
+h1, h2, h3, [data-testid="stHeading"] { font-family: 'Spectral', Georgia, serif; letter-spacing: -0.02em; color: #2b2824; }
+::selection { background: #E6122C; color: #fff; }
+.pm-head { display: flex; align-items: center; gap: 16px; padding: 4px 0 2px; }
+.pm-head h1 { font-family: 'Spectral', serif; font-weight: 600; font-size: 30px; margin: 0; line-height: 1.1; color: #2b2824; }
+.pm-head p { margin: 4px 0 0; color: #767676; font-size: 15px; }
+.pm-rail { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 6px; }
+.pm-step { display: flex; align-items: center; gap: 8px; padding: 7px 13px 7px 8px; border: 1px solid #E2E2E2; border-radius: 999px; font-size: 13px; color: #767676; font-weight: 500; background: #fff; }
+.pm-step .n { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; background: #E8E8E8; color: #767676; font-weight: 600; }
+.pm-step.on { border-color: #E6122C; color: #C31313; background: #FDEAEC; }
+.pm-step.on .n { background: #E6122C; color: #fff; }
+.pm-step.done .n { background: #C31313; color: #fff; }
+</style>
+"""
+
+_HEADER_HTML = """
+<div class="pm-head">
+  <svg width="44" height="44" viewBox="0 0 46 46" fill="none" aria-hidden="true">
+    <circle cx="23" cy="23" r="21.5" stroke="#E6122C" stroke-width="1.4" opacity=".26"/>
+    <circle cx="23" cy="23" r="14.5" stroke="#E6122C" stroke-width="1.4" opacity=".5"/>
+    <circle cx="18" cy="23" r="4.1" fill="#E6122C"/>
+    <circle cx="28" cy="18.5" r="4.1" fill="#E6122C" opacity=".72"/>
+    <circle cx="28" cy="27.5" r="4.1" fill="#E6122C" opacity=".46"/>
+  </svg>
+  <div>
+    <h1>Peer Mentoring Circles</h1>
+    <p>Sort applicants into circles of 3&ndash;6 who share goals and complementary expertise.</p>
+  </div>
+</div>
+"""
+
+_STEPS = ["Upload", "Review", "Generate", "Edit", "Export"]
+
+
+def render_rail() -> None:
+    """A thin progress rail reflecting where the organizer is in the flow."""
+    has_people = st.session_state.get("participants") is not None
+    has_groups = bool(st.session_state.get("groups"))
+    current = 3 if has_groups else (1 if has_people else 0)  # index into _STEPS
+    cells = []
+    for i, label in enumerate(_STEPS):
+        cls = "on" if i == current else ("done" if i < current else "")
+        mark = "&#10003;" if i < current else str(i + 1)
+        cells.append(f'<div class="pm-step {cls}"><span class="n">{mark}</span>{label}</div>')
+    st.markdown(f'<div class="pm-rail">{"".join(cells)}</div>', unsafe_allow_html=True)
+
+
 def main():
-    st.set_page_config(page_title="IMFAHE Peer Mentoring Matching", page_icon="🤝", layout="wide")
+    st.set_page_config(
+        page_title="IMFAHE Peer Mentoring Matching", page_icon=":material/hub:", layout="wide"
+    )
     cfg = load_config()
     if not check_password():
         return
     init_state(cfg)
 
-    st.title("🤝 IMFAHE Peer Mentoring Circles — Matching")
+    st.markdown(_BRAND_CSS, unsafe_allow_html=True)
+    st.markdown(_HEADER_HTML, unsafe_allow_html=True)
     settings = sidebar_controls(cfg)
+    render_rail()
 
     upload_section()
     review_section()

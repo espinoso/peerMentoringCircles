@@ -1,0 +1,11 @@
+# Streamlit theme — IMFAHE brand (red #E6122C on white, warm-gray text).
+# Colors sourced from imfahe.org; see docs/superpowers/specs for the design pass.
+[theme]
+base = "light"
+primaryColor = "#E6122C"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2F2F2"
+textColor = "#3A3A3A"
+linkColor = "#C31313"
+borderColor = "#E2E2E2"
+baseRadius = "0.625rem"
