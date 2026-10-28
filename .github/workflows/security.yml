@@ -9,6 +9,8 @@ permissions:
 
 jobs:
   security:
+    # Secrets are empty on Dependabot and fork PRs; skip instead of failing.
+    if: github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
