@@ -2,4 +2,4 @@ streamlit>=1.50
 pandas>=2.0
 openpyxl>=3.1
 anthropic>=0.34
-tomli>=2.0; python_version < "3.11"
+tomli>=2.5.0; python_version < "3.11"
