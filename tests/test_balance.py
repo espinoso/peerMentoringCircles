@@ -120,3 +120,28 @@ def test_leftover_member_joins_related_circle():
     aff_ai = _affinity(o, ai)
     aff_bio = _affinity(o, bio)
     assert aff_ai >= aff_bio
+
+
+def test_evicted_member_joins_related_circle():
+    # An oversized circle (7 > max 6) of theme "X" plus one AI outsider: the
+    # outsider is the worst fit and gets evicted. Two circles have room — an
+    # "AI" circle at target (4) sharing its theme, and an emptier unrelated
+    # "BIO" circle below target (3). With target<max, the old ordering (prefer
+    # below-target first) would dump the evictee into BIO; the fixed ordering
+    # (highest affinity first) sends it to the themed AI circle.
+    x = [P(i, groups=["X"]) for i in range(6)]            # ids 0..5
+    outsider = P(6, groups=["AI"])                        # worst fit in the X circle
+    ai = [P(i, groups=["AI"]) for i in range(7, 11)]      # ids 7..10 (at target 4)
+    bio = [P(i, groups=["BIO"]) for i in range(11, 14)]   # ids 11..13 (emptier, below target)
+    ps = x + [outsider] + ai + bio
+    groups = [
+        Group(name="X", member_ids=[0, 1, 2, 3, 4, 5, 6]),
+        Group(name="AI", member_ids=[7, 8, 9, 10]),
+        Group(name="BIO", member_ids=[11, 12, 13]),
+    ]
+    out, _notes = balance_groups(groups, ps, list(range(14)), target=4)
+    circle_of = {m: gi for gi, g in enumerate(out) for m in g.member_ids}
+    assert circle_of[6] == circle_of[7]  # evictee joined the related AI circle
+
+    # Affinity proxy: the evictee fits its themed landing circle better.
+    assert _affinity(outsider, ai) >= _affinity(outsider, bio)

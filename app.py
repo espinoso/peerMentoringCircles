@@ -266,6 +266,19 @@ def split_locked(
     return locked_groups, unlocked_pool_ids, too_few
 
 
+def prune_locked(locked_groups: list[Group], active_ids: set[int]) -> list[Group]:
+    """Drop no-longer-active members from locked circles, then drop any circle
+    left empty. An applicant who is both excluded and in a locked circle must
+    not survive into the export. Dropping a member may push a locked circle
+    below min_size — that is accepted (organizer-owned); we don't re-balance."""
+    kept: list[Group] = []
+    for g in locked_groups:
+        g.member_ids = [i for i in g.member_ids if i in active_ids]
+        if g.member_ids:
+            kept.append(g)
+    return kept
+
+
 def _clear_editor_widget_state() -> None:
     """Drop index-keyed editor widget state so the editor re-seeds from the new
     circles after a (re)generation — otherwise stale lock/name/move state would
@@ -289,6 +302,9 @@ def _run_generation(settings: dict, participants: list[Participant], active: lis
 
     pool_set = set(pool_ids)
     pool = [p for p in active if p.id in pool_set]
+    if not pool:
+        st.warning("No applicants to match — everyone is excluded. Re-include someone in step 2.")
+        return
 
     api_key = get_secret("ANTHROPIC_API_KEY")
     try:
@@ -305,6 +321,10 @@ def _run_generation(settings: dict, participants: list[Participant], active: lis
     except LLMError as e:
         st.error(str(e))
         return
+    # Re-attach locked circles, but first drop members no longer active (e.g. now
+    # excluded) and any locked circle left empty — otherwise an excluded applicant
+    # would survive into the export via a locked circle.
+    locked_groups = prune_locked(locked_groups, {p.id for p in active})
     groups = locked_groups + groups  # locked circles ride along unchanged, up front
     st.session_state["groups"] = groups
     _clear_editor_widget_state()

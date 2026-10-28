@@ -1,3 +1,9 @@
+> **Historical document.** This is the original pre-revamp design. The provider
+> decisions below (default OpenAI, swappable to Anthropic, `[provider].name`,
+> `OPENAI_API_KEY`) were superseded by the 2026-10 Claude-only revamp. For the
+> current design see
+> `docs/superpowers/specs/2026-10-26-peer-mentoring-revamp-design.md`.
+
 # IMFAHE Peer Mentoring Circles — Matching App: Plan (LEAN / LLM-first)
 
 > Status: **APPROVED — building.** Architecture is LLM-first: the model does the

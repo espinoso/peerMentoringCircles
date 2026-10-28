@@ -49,19 +49,26 @@ If `APP_PASSWORD` is left blank, the login is skipped (handy for local testing).
    `.streamlit/secrets.toml.example` with your real `APP_PASSWORD` and API key.
 4. Share the URL. The access word keeps casual visitors out.
 
+### Secrets
+
+Two secrets go in **Settings → Secrets** (or `.streamlit/secrets.toml` locally):
+
+- `ANTHROPIC_API_KEY` — your Claude API key. This is what powers the matching.
+- `APP_PASSWORD` — the access word organizers type to open the app. Leave it
+  blank to skip the login (handy for local testing).
+
 ### Configuration (`config.toml`)
 
-- **Provider:** `openai` (default) or `anthropic`. Set the model your key can use.
-  Swapping is just changing `[provider].name` and supplying the matching key
-  (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`) in secrets.
+- **Model:** `[provider] model` — the Claude model used for matching
+  (`claude-opus-5-5`). There is no provider switch; matching always runs on Claude.
 - **Group sizes:** `ideal` / `min` / `max`.
 - **Weights:** starting importance (0–5) for each form question; also adjustable
   live in the sidebar.
 
 ### Cost
 
-The match is one LLM call per run (a few times a year). For ~125 applicants that
-is well under a cent on OpenAI; the heavier the model, the better the reasoning.
+The match is one Claude call per run (a few times a year). For ~125 applicants
+that is a few cents; the heavier the model, the better the reasoning.
 
 ---
 
@@ -71,9 +78,9 @@ is well under a cent on OpenAI; the heavier the model, the better the reasoning.
 app.py             Streamlit UI and flow
 matching/parser.py Load & validate the form export
 matching/prompt.py Build the weighted prompt, parse the model's JSON
-matching/llm.py    OpenAI / Anthropic client behind one interface
+matching/llm.py    Claude API client
 matching/export.py Write the grouped XLSX
 themes.py          The 21 default themes (editable in-app too)
-config.toml        Provider, models, weights, group sizes
+config.toml        Model, weights, group sizes
 PLAN.md            Design decisions and rationale
 ```

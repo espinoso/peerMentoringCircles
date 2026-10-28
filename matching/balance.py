@@ -270,7 +270,7 @@ def balance_groups(
         if targets:
             best = max(
                 targets,
-                key=lambda g: (len(g.member_ids) < target, _fit(by_id[worst], members(g), wants), -len(g.member_ids)),
+                key=lambda g: (_fit(by_id[worst], members(g), wants), len(g.member_ids) < target, -len(g.member_ids)),
             )
             best.member_ids.append(worst)
         else:
