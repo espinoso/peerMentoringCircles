@@ -114,7 +114,6 @@ def test_leftover_member_joins_related_circle():
     out, _notes = balance_groups(groups, ps, list(range(8)), target=4)
     circle_of = {m: gi for gi, g in enumerate(out) for m in g.member_ids}
     ai_gi = circle_of[0]
-    bio_gi = circle_of[4]
     assert circle_of[7] == ai_gi  # leftover joined the themed circle
 
     # Coherence proxy: affinity to the assigned circle >= to the one it dodged.

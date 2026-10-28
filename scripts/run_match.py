@@ -21,12 +21,12 @@ except ModuleNotFoundError:
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from matching.balance import balance_groups  # noqa: E402
-from matching.export import build_xlsx  # noqa: E402
-from matching.llm import LLMClient  # noqa: E402
-from matching.parser import find_duplicates, parse_participants  # noqa: E402
-from matching.prompt import generate_groups  # noqa: E402
-from themes import THEMES  # noqa: E402
+from matching.balance import balance_groups
+from matching.export import build_xlsx
+from matching.llm import LLMClient
+from matching.parser import find_duplicates, parse_participants
+from matching.prompt import generate_groups
+from themes import THEMES
 
 
 def load_config() -> dict:

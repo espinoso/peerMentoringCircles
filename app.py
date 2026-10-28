@@ -56,7 +56,7 @@ def get_secret(key: str, default: str = "") -> str:
     try:
         if key in st.secrets:
             return str(st.secrets[key])
-    except Exception:  # secrets file may not exist locally
+    except Exception:  # noqa: BLE001, S110 - secrets file may not exist locally
         pass
     return os.environ.get(key, default)
 

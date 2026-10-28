@@ -57,7 +57,7 @@ class Group:
     name: str
     member_ids: list[int]
     rationale: str = ""
-    flags: list[str] = None  # noqa: RUF013
+    flags: list[str] = None
     locked: bool = False  # organizer froze this circle; regeneration leaves it untouched
 
     def __post_init__(self):
@@ -213,7 +213,7 @@ def _clean_flag(text: str, by_id: dict[int, Participant]) -> str | None:
     if not text or _NOISE_FLAG.search(text):
         return None
 
-    def repl(m: "re.Match") -> str:
+    def repl(m: re.Match) -> str:
         i = int(m.group(1))
         return by_id[i].name if i in by_id else m.group(0)
 

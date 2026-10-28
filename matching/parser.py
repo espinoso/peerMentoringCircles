@@ -151,7 +151,7 @@ def parse_participants(data: bytes, filename: str) -> tuple[list[Participant], d
     for idx, row in df.iterrows():
         def get(field_name: str) -> str:
             col = column_map.get(field_name)
-            return str(row[col]).strip() if col is not None else ""
+            return str(row[col]).strip() if col is not None else ""  # noqa: B023 - called within the iteration
 
         # Skip blank rows (no name and no email).
         if not get("name") and not get("email"):

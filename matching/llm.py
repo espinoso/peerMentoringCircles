@@ -36,7 +36,7 @@ class LLMClient:
                 system=system + "\n\nRespond with a single valid JSON object and nothing else.",
                 messages=[{"role": "user", "content": user}],
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             raise LLMError(f"Anthropic request failed: {e}") from e
         return "".join(block.text for block in resp.content if block.type == "text")
 
